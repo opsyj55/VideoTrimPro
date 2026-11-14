@@ -30,24 +30,34 @@ jobs:
         run: |
           sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Extract V6 source
+      - name: Extract Android project
         run: |
           mkdir -p source
           unzip -q VideoTrimPro-v6-Android-Source.zip -d source
-          test -f source/VideoTrimPro/settings.gradle.kts
 
-      - name: Set Java compatibility to 17
+          PROJECT_DIR=$(find source -name settings.gradle.kts -printf '%h\n' | head -n 1)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "Android project not found in ZIP"
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+          echo "Found project at: $PROJECT_DIR"
+
+      - name: Fix Java compatibility
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
+          import os
 
-          p = Path("source/VideoTrimPro/app/build.gradle.kts")
+          p = Path(os.environ["PROJECT_DIR"]) / "app/build.gradle.kts"
           s = p.read_text()
 
           java17 = """compileOptions {
@@ -65,16 +75,17 @@ jobs:
                          s, count=1)
 
           p.write_text(s)
+          print("Java compatibility set to 17")
           PY
 
-      - name: Build VideoTrim Pro APK
+      - name: Build Debug APK
         run: |
-          cd source/VideoTrimPro
+          cd "$PROJECT_DIR"
           gradle :app:assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: VideoTrim-Pro-V6-APK
-          path: source/VideoTrimPro/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
