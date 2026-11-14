@@ -23,20 +23,20 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android SDK packages
         run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME"
+
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" \
             -name sdkmanager -type f | sort -V | tail -n 1)
 
           if [ -z "$SDKMANAGER" ]; then
-            echo "ERROR: sdkmanager not found"
+            echo "Android SDK manager not found"
             exit 1
           fi
 
-          yes | "$SDKMANAGER" --licenses || true
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses || true
 
           "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install \
             "platform-tools" \
@@ -50,32 +50,24 @@ jobs:
 
       - name: Extract Android project
         run: |
+          ls -la
+          ZIP_FILE=$(ls -t *.zip | head -n 1)
+          echo "Using ZIP: $ZIP_FILE"
           mkdir -p source
-
-          ZIP_FILE="VideoTrimPro-v6-Fixed3-Android-Source.zip"
-
-          if [ ! -f "$ZIP_FILE" ]; then
-            echo "ERROR: $ZIP_FILE not found in repository root"
-            ls -la
-            exit 1
-          fi
-
           unzip -q "$ZIP_FILE" -d source
 
-          PROJECT_DIR=$(find source \
-            -name settings.gradle.kts \
+          PROJECT_DIR=$(find source -name settings.gradle.kts \
             -printf '%h\n' | head -n 1)
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android project not found"
+            echo "Android project not found in ZIP"
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Found project at: $PROJECT_DIR"
 
-          echo "Android project found: $PROJECT_DIR"
-
-      - name: Configure Java 17
+      - name: Configure Java and Kotlin compatibility
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -84,7 +76,6 @@ jobs:
 
           project = Path(os.environ["PROJECT_DIR"])
           p = project / "app/build.gradle.kts"
-
           s = p.read_text()
 
           java = """compileOptions {
@@ -92,10 +83,13 @@ jobs:
               targetCompatibility = JavaVersion.VERSION_17
           }"""
 
-          pattern = r'compileOptions\s*\{[^{}]*\}'
-
-          if re.search(pattern, s):
-              s = re.sub(pattern, lambda _: java, s, count=1)
+          if re.search(r'compileOptions\s*\{[^{}]*\}', s):
+              s = re.sub(
+                  r'compileOptions\s*\{[^{}]*\}',
+                  lambda _: java,
+                  s,
+                  count=1
+              )
           else:
               s = re.sub(
                   r'android\s*\{',
@@ -105,7 +99,7 @@ jobs:
               )
 
           p.write_text(s)
-          print("Java 17 configured successfully")
+          print("Java compatibility configured.")
           PY
 
       - name: Build Debug APK
