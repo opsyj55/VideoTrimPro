@@ -1,85 +1,105 @@
 name: Build VideoTrim Pro V6 APK
 
 on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
+workflow_dispatch:
+push:
+branches:
+- main
 
 permissions:
-  contents: read
+contents: read
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+build:
+runs-on: ubuntu-latest
 
-    env:
-      ANDROID_HOME: /usr/local/lib/android/sdk
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+env:
+  ANDROID_HOME: /usr/local/lib/android/sdk
+  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+  - name: Set up Java 17
+    uses: actions/setup-java@v4
+    with:
+      distribution: temurin
+      java-version: '17'
 
-      - name: Set up Gradle 8.9
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+  - name: Set up Gradle 8.9
+    uses: gradle/actions/setup-gradle@v4
+    with:
+      gradle-version: '8.9'
 
-      - name: Install Android SDK packages
-        run: |
-          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort | tail -n 1)
+  - name: Install Android SDK packages
+    run: |
+      SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort | tail -n 1)
 
-          if [ -z "$SDKMANAGER" ]; then
-            echo "Android SDK manager not found"
-            exit 1
-          fi
+      if [ -z "$SDKMANAGER" ]; then
+        echo "Android SDK manager not found"
+        exit 1
+      fi
 
-          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses || true
+      yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses || true
 
-          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+      "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
+        "platform-tools" \
+        "platforms;android-35" \
+        "build-tools;35.0.0"
 
-      - name: Extract V6 source
-        run: |
-          mkdir -p source
-          unzip -q VideoTrimPro-v6-Android-Source.zip -d source
-          test -f source/VideoTrimPro/settings.gradle.kts
+  - name: Extract V6 source
+    run: |
+      mkdir -p source
+      unzip -q VideoTrimPro-v6-Android-Source.zip -d source
+      test -f source/VideoTrimPro/settings.gradle.kts
 
-      - name: Fix Java and Kotlin compatibility
-        run: |
-          cd source/VideoTrimPro
+  - name: Fix Java and Kotlin compatibility
+    run: |
+      python3 - <<'PY'
+      from pathlib import Path
+      import re
 
-          cat >> app/build.gradle.kts <<'EOF'
+      p = Path("source/VideoTrimPro/app/build.gradle.kts")
+      s = p.read_text()
 
-          tasks.withType<JavaCompile>().configureEach {
-              sourceCompatibility = "17"
-              targetCompatibility = "17"
-          }
+      java17 = """compileOptions {
+          sourceCompatibility = JavaVersion.VERSION_17
+          targetCompatibility = JavaVersion.VERSION_17
+      }"""
 
-          tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-              kotlinOptions {
-                  jvmTarget = "17"
-              }
-          }
-          EOF
+      pattern = r'compileOptions\s*\{[^{}]*\}'
 
-      - name: Build VideoTrim Pro APK
-        run: |
-          cd source/VideoTrimPro
-          gradle :app:assembleDebug --stacktrace
+      if re.search(pattern, s):
+          s = re.sub(pattern, lambda _: java17, s, count=1)
+      else:
+          android_pattern = r'android\s*\{'
+          if not re.search(android_pattern, s):
+              raise SystemExit("Could not find android { block in app/build.gradle.kts")
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: VideoTrim-Pro-V6-APK
-          path: source/VideoTrimPro/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+          s = re.sub(
+              android_pattern,
+              lambda m: m.group(0) + "\n    " + java17.replace("\n", "\n    "),
+              s,
+              count=1
+          )
+
+      p.write_text(s)
+      print("Java source and target compatibility set to 17.")
+      PY
+
+  - name: Verify compatibility settings
+    run: |
+      grep -A4 "compileOptions" source/VideoTrimPro/app/build.gradle.kts
+
+  - name: Build VideoTrim Pro APK
+    run: |
+      cd source/VideoTrimPro
+      gradle :app:assembleDebug --stacktrace
+
+  - name: Upload APK
+    uses: actions/upload-artifact@v4
+    with:
+      name: VideoTrim-Pro-V6-APK
+      path: source/VideoTrimPro/app/build/outputs/apk/debug/app-debug.apk
+      if-no-files-found: error
