@@ -23,12 +23,25 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android packages
+      - name: Install Android SDK packages
         run: |
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME"
+
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" \
+            -name sdkmanager -type f | sort -V | tail -n 1)
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "Android SDK manager not found"
+            exit 1
+          fi
+
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses || true
+
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
@@ -40,42 +53,50 @@ jobs:
           mkdir -p source
           unzip -q VideoTrimPro-v6-Android-Source.zip -d source
 
-          PROJECT_DIR=$(find source -name settings.gradle.kts -printf '%h\n' | head -n 1)
+          PROJECT_DIR=$(find source -name settings.gradle.kts \
+            -printf '%h\n' | head -n 1)
 
           if [ -z "$PROJECT_DIR" ]; then
             echo "Android project not found in ZIP"
             exit 1
           fi
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Found project at: $PROJECT_DIR"
 
-      - name: Fix Java compatibility
+      - name: Configure Java and Kotlin compatibility
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
           import os
+          import re
 
-          p = Path(os.environ["PROJECT_DIR"]) / "app/build.gradle.kts"
+          project = Path(os.environ["PROJECT_DIR"])
+          p = project / "app/build.gradle.kts"
           s = p.read_text()
 
-          java17 = """compileOptions {
+          java = """compileOptions {
               sourceCompatibility = JavaVersion.VERSION_17
               targetCompatibility = JavaVersion.VERSION_17
           }"""
 
-          pattern = r'compileOptions\s*\{[^{}]*\}'
-
-          if re.search(pattern, s):
-              s = re.sub(pattern, lambda _: java17, s, count=1)
+          if re.search(r'compileOptions\s*\{[^{}]*\}', s):
+              s = re.sub(
+                  r'compileOptions\s*\{[^{}]*\}',
+                  lambda _: java,
+                  s,
+                  count=1
+              )
           else:
-              s = re.sub(r'android\s*\{',
-                         lambda m: m.group(0) + "\n    " + java17,
-                         s, count=1)
+              s = re.sub(
+                  r'android\s*\{',
+                  lambda m: m.group(0) + "\n    " + java,
+                  s,
+                  count=1
+              )
 
           p.write_text(s)
-          print("Java compatibility set to 17")
+          print("Java compatibility configured.")
           PY
 
       - name: Build Debug APK
