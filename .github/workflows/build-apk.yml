@@ -3,7 +3,8 @@ name: Build VideoTrim Pro V6 APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -28,14 +29,18 @@ jobs:
           gradle-version: '8.9'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
 
-      - name: Extract V6 source
+      - name: Check and extract V6 source
         run: |
+          mkdir -p source
+          ls -lh
           unzip -q VideoTrimPro-v6-Android-Source.zip -d source
           test -f source/VideoTrimPro/settings.gradle.kts
 
-      - name: Build APK
+      - name: Build VideoTrim Pro APK
         run: |
           cd source/VideoTrimPro
           gradle :app:assembleDebug --stacktrace
