@@ -3,8 +3,7 @@ name: Build VideoTrim Pro V6 APK
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [main]
 
 permissions:
   contents: read
@@ -29,16 +28,31 @@ jobs:
           gradle-version: '8.9'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: 'platform-tools'
+        uses: android-actions/setup-android@v3
 
-      - name: Check and extract V6 source
+      - name: Extract V6 source
         run: |
           mkdir -p source
-          ls -lh
           unzip -q VideoTrimPro-v6-Android-Source.zip -d source
           test -f source/VideoTrimPro/settings.gradle.kts
+
+      - name: Fix Java and Kotlin compatibility
+        run: |
+          cd source/VideoTrimPro
+
+          cat >> app/build.gradle.kts <<'EOF'
+
+          tasks.withType<JavaCompile>().configureEach {
+              sourceCompatibility = "17"
+              targetCompatibility = "17"
+          }
+
+          tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+          EOF
 
       - name: Build VideoTrim Pro APK
         run: |
